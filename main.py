@@ -1,7 +1,5 @@
 import torch
 from torch.utils.data import DataLoader, Subset
-import matplotlib.pyplot as plt
-import numpy as np
 import time
 import os
 
@@ -9,14 +7,12 @@ from dataloader import CelebADataset
 from frequency_network import Luna_Net
 from discriminator import Discriminator
 from loss import CombinedLoss
-
 #hyperparameters
-os.chdir("/users/pgrad/meti/Downloads")
-path = os.getcwd()
-os.makedirs("results/seventh_frequency_loss", exist_ok=True)
-os.makedirs("results/seventh_frequency_results", exist_ok=True)
+path = os.path.dirname(os.path.abspath(__file__))
 dataset_path = os.path.join(path, "dataset/CelebA-HQ")
 mask_path = os.path.join(path, "dataset/nvidia_irregular_masks_cleaned")
+os.makedirs("results", exist_ok=True)
+log_file = os.path.join(path, "results/training_log.txt")
 batch_size = 32
 learning_rate = 2 * 10e-4
 num_epochs = 20
@@ -59,22 +55,8 @@ criterion = CombinedLoss().to(device)
 optimizer_G = torch.optim.Adam(gen.parameters(), lr=learning_rate, betas=(0.5, 0.99))
 optimizer_D = torch.optim.Adam(disc.parameters(), lr=learning_rate)
 
-#set up the losses graphing
-def plot_losses(train_losses, val_losses, save_path):
-    plt.figure(figsize=(10, 5))
-    plt.plot(train_losses, label='Training Loss')
-    plt.plot(val_losses, label='Validation Loss')
-    plt.xlabel('Epoch')
-    plt.ylabel('Loss')
-    plt.title('Generator Loss over Epochs')
-    plt.legend()
-    plt.savefig(save_path)
-    plt.close()
-train_losses = []
-val_losses = []
-
 #load the checkpoints if exist
-checkpoint_path = "results/seventh_latest.pth"
+checkpoint_path = os.path.join(path, "results/cloud_latest.pth")
 if os.path.isfile(checkpoint_path):
     checkpoint = torch.load(checkpoint_path)
     gen.load_state_dict(checkpoint["gen_state_dict"])
@@ -87,9 +69,10 @@ else:
 
 #training loop
 for epoch in range(start_epoch, num_epochs):
-    gen.train()
+    epoch_start_time = time.time()
     cumulative_time = 0
     epoch_loss = 0
+    gen.train()
     for i, (images, targets, masks) in enumerate(train_loader):
         start_time = time.time()
         images, targets, masks = images.to(device), targets.to(device), masks.to(device)
@@ -142,24 +125,22 @@ for epoch in range(start_epoch, num_epochs):
             cumulative_time = 0
 
     avg_train_loss = epoch_loss / len(train_loader)
-    train_losses.append(avg_train_loss)
 
-    #save the state of the model every 10 epochs
-    if (epoch + 1) % 10 == 0 or epoch == num_epochs - 1:
-        torch.save(
-            {
-                "epoch": epoch,
-                "gen_state_dict": gen.state_dict(),
-                "disc_state_dict": disc.state_dict(),
-                "optimizer_G_state_dict": optimizer_G.state_dict(),
-                "optimizer_D_state_dict": optimizer_D.state_dict(),
-            },
-            checkpoint_path,
-        )
+    #losses logging 
+    epoch_end_time = time.time()
+    epoch_time = (epoch_end_time - epoch_start_time) / 60
 
-    #save the losses every epoch
-    plot_losses(train_losses, val_losses, f"results/seventh_frequency_loss/loss_epoch_{epoch+1}.png")
-
+    #save the state of the model every epoch
+    torch.save(
+        {
+            "epoch": epoch,
+            "gen_state_dict": gen.state_dict(),
+            "disc_state_dict": disc.state_dict(),
+            "optimizer_G_state_dict": optimizer_G.state_dict(),
+            "optimizer_D_state_dict": optimizer_D.state_dict(),
+        },
+        checkpoint_path,
+    )
     #Validation
     if (epoch + 1) % 1 == 0:
         gen.eval()
@@ -172,7 +153,6 @@ for epoch in range(start_epoch, num_epochs):
                 loss = criterion(outputs, targets, None, False)  # We don't need discriminator output for validation
                 val_loss += loss.item()
         avg_val_loss = val_loss / len(test_loader)
-        val_losses.append(avg_val_loss)
         #save the image examples for the trained model every epoch
         with torch.no_grad():
             for i, (image, mask, target) in enumerate(zip(test_images, test_masks, test_targets)):
@@ -182,15 +162,9 @@ for epoch in range(start_epoch, num_epochs):
                     image.unsqueeze(0).to(device), mask.unsqueeze(0).to(device)
                 )
                 inpainted_img = inpainted_img.squeeze(0).cpu().detach()
-                plt.figure()
-                plt.subplot(1, 3, 1)
-                plt.imshow(np.transpose(image.cpu().numpy(), (1, 2, 0)))
-                plt.title("Corrupted Image")
-                plt.subplot(1, 3, 2)
-                plt.imshow(np.transpose(target.cpu().numpy(), (1, 2, 0)))
-                plt.title("Ground Truth")
-                plt.subplot(1, 3, 3)
-                plt.imshow(np.transpose(inpainted_img.numpy(), (1, 2, 0)))
-                plt.title("Inpainted Image")
-                plt.savefig(f"results/seventh_frequency_results/inpainted_epoch_{epoch+1}_{i}.png")
-                plt.close()
+        
+    # Log the results
+    with open(log_file, 'a') as f:
+        f.write(f"Epoch [{epoch+1}/{num_epochs}], Avg Train Loss: {avg_train_loss:.4f}, Validation Loss: {avg_val_loss:.4f}, Epoch Time: {epoch_time:.2f} mins\n")
+
+print("Training completed.")
