@@ -13,7 +13,7 @@ from frequency_network import Luna_Net
 #from network_luna_bottleneck import Luna_Net
 
 #hyperparameters
-batch_size = 32
+batch_size = 16
 path = os.path.dirname(os.path.abspath(__file__))
 dataset_path = os.path.join(path, "dataset/CelebA-HQ")
 mask_path = os.path.join(path, "dataset/masks_classified")
